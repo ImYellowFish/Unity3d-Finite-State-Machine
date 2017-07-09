@@ -8,7 +8,7 @@ namespace MonsterLove.StateMachine
     public class GlobalStateHistoryWindow : EditorWindow
     {
         // Add menu item to show this window.
-        [MenuItem("FSM/Global FSM History")]
+        [MenuItem("Window/FSM/Global FSM History")]
         public static void Create()
         {
             var window = GetWindow(typeof(GlobalStateHistoryWindow));

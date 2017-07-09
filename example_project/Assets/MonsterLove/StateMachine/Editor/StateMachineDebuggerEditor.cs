@@ -19,7 +19,7 @@ namespace MonsterLove.StateMachine {
             {
                 EditorGUILayout.BeginVertical();                
             }
-            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.MinHeight(maxHeight));
 
 
             if (reverse)
