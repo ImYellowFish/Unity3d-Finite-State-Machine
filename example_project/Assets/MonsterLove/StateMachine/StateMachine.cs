@@ -65,6 +65,8 @@ namespace MonsterLove.StateMachine
 		private IEnumerator enterRoutine;
 		private IEnumerator queuedChange;
 
+        public bool enableTransitionToSelf { get; set; }
+
 		public StateMachine(StateMachineRunner engine, MonoBehaviour component)
 		{
 			this.engine = engine;
@@ -194,7 +196,7 @@ namespace MonsterLove.StateMachine
 
 			var nextState = stateLookup[newState];
 
-			if (currentState == nextState) return;
+			if (currentState == nextState && !enableTransitionToSelf) return;
 
 			//Cancel any queued changes.
 			if (queuedChange != null)
@@ -394,12 +396,14 @@ namespace MonsterLove.StateMachine
 		/// <param name="component">The component with defined state methods</param>
 		/// <param name="startState">The default starting state</param>
 		/// <returns>A valid stateMachine instance to manage MonoBehaviour state transitions</returns>
-		public static StateMachine<T> Initialize(MonoBehaviour component, T startState)
+		public static StateMachine<T> Initialize(MonoBehaviour component, T startState, bool enableTransitionToSelf = false)
 		{
 			var engine = component.GetComponent<StateMachineRunner>();
 			if (engine == null) engine = component.gameObject.AddComponent<StateMachineRunner>();
 
-			return engine.Initialize<T>(component, startState);
+			var fsm = engine.Initialize<T>(component, startState);
+            fsm.enableTransitionToSelf = enableTransitionToSelf;
+            return fsm;
 		}
 
 	}

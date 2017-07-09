@@ -3,25 +3,122 @@ using UnityEditor;
 using System.Collections.Generic;
 
 namespace MonsterLove.StateMachine {
+    public static class StateMachineDebuggerEditorUtil
+    {
+        public static void DrawTransitionHistory(List<StateMachineDebugger.TransitionRecord> history, 
+            float maxHeight,
+            ref Vector2 scrollPos, 
+            bool reverse, 
+            bool showGameObject)
+        {
+            if (maxHeight > 0)
+            {
+                EditorGUILayout.BeginVertical(GUILayout.MaxHeight(maxHeight), GUILayout.MinHeight(5));                
+            }
+            else
+            {
+                EditorGUILayout.BeginVertical();                
+            }
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+
+
+            if (reverse)
+            {
+                for (int i = history.Count - 1; i >= 0; i--)
+                {
+                    DrawTransitionRecord(history[i], showGameObject);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < history.Count; i++)
+                {
+                    DrawTransitionRecord(history[i], showGameObject);
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
+
+        public static void DrawTransitionRecord(StateMachineDebugger.TransitionRecord record, bool showGameObject)
+        {
+            string objInfo = record.gameObject.name;
+
+            string history = record.transition.FromStateName + " -> " +
+                record.transition.ToStateName +
+                "     (" +
+                record.transition.TriggerName +
+                ")";
+
+            string info = "Index: " +
+                record.index.ToString() +
+                ", Time: " +
+                record.time.ToString();
+
+            if (showGameObject)
+                EditorGUILayout.LabelField(objInfo);
+
+            EditorGUILayout.LabelField(history);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(info);
+            if (GUILayout.Button("Track", GUILayout.MaxWidth(100)))
+            {
+                var trackWindow = EditorWindow.GetWindow<TransitionHistoryTrackWindow>();
+                trackWindow.titleContent = new GUIContent("State track");
+                trackWindow.SetRecord(record);
+                trackWindow.Show();
+            }
+            EditorGUILayout.EndHorizontal();
+            DrawSplitLine();
+        }
+
+        public static void DrawSplitLine()
+        {
+            EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
+
+        }
+    }
+
+
     [CustomEditor(typeof(StateMachineDebugger))]
     public class StateMachineDebuggerEditor : Editor {
         private const float STATE_WIDTH = 100;
         private const float STATE_HEIGHT = 50;
+        private const float BUTTON_WIDTH = 150;
+        private const float HISTORY_WIDTH = 100;
+
+        private bool styleInit = false;
+        private GUIStyle labelLeftAlign;
+        private GUIStyle intPopupLeftAlign;
 
         public void OnEnable() {
 
         }
 
+        private bool showStateGraphFoldOut = false;
+
         public override void OnInspectorGUI() {
+            InitGUIStyle();
             DrawDefaultInspector();
-            
+            EditorGUILayout.Space();
+
             StateMachineDebugger smd = target as StateMachineDebugger;
             if (!smd.stateValid)
                 return;
 
-            DrawOptions(smd);
-            DrawStates(smd);
-            DrawTransitions(smd);
+            InitStatesAndTransitions(smd);
+            DrawCommands(smd);
+
+            DrawTransitionHistory(smd);
+
+            showStateGraphFoldOut = EditorGUILayout.Foldout(showStateGraphFoldOut, "StateGraph");
+            if (showStateGraphFoldOut)
+            {
+                DrawGraphOptions(smd);
+                DrawStates(smd);
+                DrawTransitions(smd);
+            }
         }
 
         public class StateInfo {
@@ -29,6 +126,20 @@ namespace MonsterLove.StateMachine {
             public int index;
             public Rect stateRect;
             public Color color;
+        }
+
+
+        private void InitGUIStyle()
+        {
+            if (!styleInit)
+            {
+                styleInit = true;
+                labelLeftAlign = new GUIStyle("Label");
+                labelLeftAlign.alignment = TextAnchor.MiddleLeft;
+
+                //intPopupLeftAlign = new GUIStyle("Popup");
+                //intPopupLeftAlign.alignment = TextAnchor.MiddleLeft;
+            }
         }
 
         // options
@@ -45,7 +156,48 @@ namespace MonsterLove.StateMachine {
         private string[] show_statePopupNames;
 
 
-        private void DrawOptions(StateMachineDebugger smd)
+        // private void 
+
+
+        private void DrawCommands(StateMachineDebugger smd)
+        {
+            
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Change State", labelLeftAlign);
+            changeToState = EditorGUILayout.IntPopup("", changeToState, to_stateNames, to_stateValues, GUILayout.MaxWidth(BUTTON_WIDTH));
+            if (GUILayout.Button("Change State", GUILayout.MaxWidth(BUTTON_WIDTH)))
+            {
+                smd.InvokeChangeState(smd.states.GetValue(changeToState));
+            }
+            GUILayout.EndHorizontal();
+
+            
+            GUILayout.BeginHorizontal();
+            if (smd.transitionValid)
+            {
+                GUILayout.Label("Invoke Trigger", labelLeftAlign);
+                invokeTrigger = EditorGUILayout.IntPopup("", invokeTrigger, to_triggerNames, to_triggerValues, GUILayout.MaxWidth(BUTTON_WIDTH));
+                if (GUILayout.Button("Invoke Trigger", GUILayout.MaxWidth(BUTTON_WIDTH)))
+                {
+                    smd.InvokeTrigger(smd.triggers.GetValue(invokeTrigger));
+                }
+            }
+            GUILayout.EndHorizontal();
+            EditorGUILayout.Space();
+
+        }
+
+        private void DrawGraphOptions(StateMachineDebugger smd)
+        {
+            
+            InitStatesAndTransitions(smd);
+            
+            showTransitionOfState = EditorGUILayout.IntPopup("Show Transition", showTransitionOfState, show_statePopupNames, show_statePopupValues);
+            EditorGUILayout.Space();
+   
+        }
+
+        private void InitStatesAndTransitions(StateMachineDebugger smd)
         {
             if (!smd.stateValid)
             {
@@ -57,29 +209,12 @@ namespace MonsterLove.StateMachine {
                 InitStateNames(smd);
             }
 
-            if(to_triggerValues == null || to_triggerValues.Length < smd.triggers.Length)
+            if (!smd.transitionValid)
+                return;
+
+            if (to_triggerValues == null || to_triggerValues.Length < smd.triggers.Length)
             {
                 InitTransitionNames(smd);
-            }
-           
-            showTransitionOfState = EditorGUILayout.IntPopup("Show Transition", showTransitionOfState, show_statePopupNames, show_statePopupValues);
-            EditorGUILayout.Space();
-
-            changeToState = EditorGUILayout.IntPopup("Change to target state", changeToState, to_stateNames, to_stateValues);
-            if(GUILayout.Button("Change State"))
-            {
-                smd.InvokeChangeState(smd.states.GetValue(changeToState));
-            }
-            
-
-            if (smd.transitionValid)
-            {
-                EditorGUILayout.Space();
-                invokeTrigger = EditorGUILayout.IntPopup("Invoke Trigger", invokeTrigger, to_triggerNames, to_triggerValues);
-                if (GUILayout.Button("Invoke Trigger"))
-                {
-                    smd.InvokeTrigger(smd.triggers.GetValue(invokeTrigger));
-                }
             }
         }
 
@@ -87,9 +222,7 @@ namespace MonsterLove.StateMachine {
         private GUIStyle style;
 
         private void DrawStates(StateMachineDebugger smd) {
-            if (!smd.stateValid)
-                return;
-
+            
             int stateCount = smd.states.Length;
             style = new GUIStyle();
             style.alignment = TextAnchor.MiddleCenter;
@@ -214,6 +347,46 @@ namespace MonsterLove.StateMachine {
                 }
             }
 
+        }
+
+        private Vector2 historyScrollPos;
+        private void DrawTransitionHistory(StateMachineDebugger smd)
+        {
+            if (!smd.transitionValid)
+                return;
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("History", GUILayout.Width(130));
+            EditorGUILayout.LabelField("Time Ascending", GUILayout.Width(100));
+            smd.timeAscending = EditorGUILayout.Toggle(smd.timeAscending);
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginVertical();
+            StateMachineDebuggerEditorUtil.DrawTransitionHistory(smd.transitionHistory, 300, ref historyScrollPos, !smd.timeAscending, false);
+
+            if(GUILayout.Button("Show Global History", GUILayout.Width(150)))
+            {
+                GlobalStateHistoryWindow.Create();
+            }
+            EditorGUILayout.EndVertical();
+        }
+        
+
+        private void LogStackTrace(StateMachineDebugger.TransitionRecord record)
+        {
+            var trace = record.stackTrace;
+            var frames = trace.GetFrames();
+
+            string log = "";
+            foreach(var frame in frames)
+            {
+                log += "at " + frame.GetMethod().ToString();
+                log += ", file: " + frame.GetFileName();
+                log += ", line " + frame.GetFileLineNumber().ToString();
+                log += "\n";
+
+            }
+            Debug.Log(log);
         }
 
         private static Rect ScaleRect(Rect original, float scale) {

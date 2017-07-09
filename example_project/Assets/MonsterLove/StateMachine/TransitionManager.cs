@@ -8,6 +8,25 @@ namespace MonsterLove.StateMachine
         IStateConfiguration[] ConfigurationList { get; }
     }
 
+
+    public interface IStateConfiguration
+    {
+        ITransition[] Transitions { get; }
+    }
+
+
+
+    public interface ITransition
+    {
+        string FromStateName { get; }
+        string ToStateName { get; }
+        string TriggerName { get; }
+        bool HasGuard { get; }
+        StateTransition overrideSetting { get; }
+    }
+
+
+
     /// <summary>
     /// Manage state transitions
     /// </summary>
@@ -16,10 +35,13 @@ namespace MonsterLove.StateMachine
         where TTrigger : struct, IConvertible, IComparable
     {
         public event Action<Transition<TTrigger, TState>> Triggered;
+        public Array states;
 
         public TransitionManager(StateMachine<TState> fsm)
         {
             this.fsm = fsm;
+
+            states = Enum.GetValues(typeof(TState));
         }
 
         public StateConfiguration<TTrigger, TState> Configure(TState state)
@@ -37,29 +59,33 @@ namespace MonsterLove.StateMachine
                 return stateConfig;
             }
         }
-
+        
         /// <summary>
         /// fires some trigger
         /// changes the state if needed
+        /// 
+        /// returns true if a valid transition is called
+        /// 
         /// </summary>
         /// <param name="trigger"></param>
-        public void Fire(TTrigger trigger)
+        public bool Fire(TTrigger trigger)
         {
             try
             {
                 object fromState = fsm.CurrentStateMap.state;
                 Transition<TTrigger, TState> transition = dict[fromState].ProcessTrigger(trigger);
-                if (!transition.toState.Equals(fromState))
-                {
-                    fsm.ChangeState(transition.toState);
 
-                    if(Triggered != null)
-                        Triggered.Invoke(transition);
-                }
+                fsm.ChangeState(transition.toState, transition.overrideSetting);
+
+                if(Triggered != null)
+                    Triggered.Invoke(transition);
+
+                return true;
             }
             catch
             {
                 // does not find valid transition regarding this state
+                return false;
             }
         }
 
@@ -72,6 +98,69 @@ namespace MonsterLove.StateMachine
         }
 
 
+        /// <summary>
+        /// Permit all state to transition to toState by a specified trigger
+        /// </summary>
+        /// <param name="trigger"></param>
+        /// <param name="toState"></param>
+        /// <param name="overrideSetting"></param>
+        public TransitionManager<TTrigger, TState> PermitAll(TTrigger trigger,
+            TState toState,
+            StateTransition overrideSetting = StateTransition.Safe)
+        {
+            foreach (var state in states)
+            {
+                try
+                {
+                    Configure((TState)state).Permit(trigger, toState, overrideSetting);
+                }
+                catch (ArgumentException)
+                {
+                    // This means the state cannot transition to itself
+                }
+            }
+            return this;
+        }
+
+        /// <summary>
+        /// Permit all state to transition to toState by a specified trigger, with guard
+        /// </summary>
+        /// <param name="trigger"></param>
+        /// <param name="toState"></param>
+        /// <param name="overrideSetting"></param>
+        public TransitionManager<TTrigger, TState> PermitAll(TTrigger trigger,
+            TState toState,
+             Func<bool> guard,
+            StateTransition overrideSetting = StateTransition.Safe)
+        {
+            foreach (var state in states)
+            {
+                try
+                {
+                    Configure((TState)state).PermitIf(trigger, toState, guard, overrideSetting);
+                }
+                catch (ArgumentException)
+                {
+                    // This means the state cannot transition to itself
+                }
+            }
+            return this;
+        }
+
+        /// <summary>
+        /// Remove a transition with specified fromState and trigger
+        /// </summary>
+        /// <param name="fromState"></param>
+        /// <param name="trigger"></param>
+        /// <returns></returns>
+        public TransitionManager<TTrigger, TState> Remove(TState fromState, TTrigger trigger)
+        {
+            Configure(fromState).Remove(trigger);
+
+            return this;
+        }
+
+
         public IStateConfiguration[] ConfigurationList {
             get {
                 StateConfiguration<TTrigger, TState>[] result = new StateConfiguration<TTrigger, TState>[dict.Count];
@@ -80,13 +169,21 @@ namespace MonsterLove.StateMachine
             }
         }
 
-        private StateMachine<TState> fsm;
+        public StateMachine<TState> fsm;
+
+        public TState CurrentState
+        {
+            get
+            {
+                object state = fsm.CurrentStateMap.state;
+                if (state != null)
+                    return (TState)state;
+                return (TState)states.GetValue(0);
+            }
+        }
+
         private Dictionary<object, StateConfiguration<TTrigger, TState>> dict = new Dictionary<object, StateConfiguration<TTrigger, TState>>();
 
-    }
-
-    public interface IStateConfiguration {
-        ITransition[] Transitions { get; }
     }
 
 
@@ -103,11 +200,24 @@ namespace MonsterLove.StateMachine
         private TState state;        
         private List<Transition<TTrigger, TState>> transitions { get; set; }
         private const string NO_GUARD_DESCRIPTION = "NO_GUARD";
+        private StateMachine<TState> fsm;
+        
 
-        public StateConfiguration(TransitionManager<TTrigger, TState> fsmConfig, TState state)
+        public StateConfiguration(TransitionManager<TTrigger, TState> transitionManager, TState state)
         {
             this.state = state;
             transitions = new List<Transition<TTrigger, TState>>();
+            fsm = transitionManager.fsm;
+        }
+
+
+
+        private void EnforceNotIdentityTransition(TState toState)
+        {
+            if (state.Equals(toState) && !fsm.enableTransitionToSelf)
+            {
+                throw new ArgumentException("The FSM Cannot transit to self state: " + toState.ToString());
+            }
         }
 
         /// <summary>
@@ -116,13 +226,15 @@ namespace MonsterLove.StateMachine
         /// <param name="trigger"></param>
         /// <param name="toState"></param>
         /// <returns></returns>
-        public StateConfiguration<TTrigger, TState> Permit(TTrigger trigger, TState toState)
+        public StateConfiguration<TTrigger, TState> Permit(TTrigger trigger, TState toState,
+            StateTransition overrideSetting = StateTransition.Safe)
         {
             EnforceNotIdentityTransition(toState);
             transitions.Add(new Transition<TTrigger, TState>(
                 trigger,
                 state,
-                toState
+                toState,
+                overrideSetting
             ));
             return this;
 
@@ -135,18 +247,36 @@ namespace MonsterLove.StateMachine
         /// <param name="toState"></param>
         /// <param name="guard"></param>
         /// <returns></returns>
-        public StateConfiguration<TTrigger, TState> PermitIf(TTrigger trigger, TState toState, Func<bool> guard)
+        public StateConfiguration<TTrigger, TState> PermitIf(TTrigger trigger, 
+            TState toState, 
+            Func<bool> guard,
+            StateTransition overrideSetting = StateTransition.Safe)
         {
             EnforceNotIdentityTransition(toState);
             transitions.Add(new Transition<TTrigger, TState>(
                 trigger,
                 state,
                 toState,
-                guard
+                guard,
+                overrideSetting
             ));
             return this;
         }
 
+        /// <summary>
+        /// Remove a transition with the specified trigger
+        /// </summary>
+        /// <param name="trigger"></param>
+        /// <returns></returns>
+        public StateConfiguration<TTrigger, TState> Remove(TTrigger trigger)
+        {
+            var transition = transitions.Find((t) => t.trigger.Equals(trigger));
+            if (transition != null)
+                transitions.Remove(transition);
+
+            return this;
+        }
+        
 
         /// <summary>
         /// checks whether the state should change when some trigger is fired
@@ -163,17 +293,7 @@ namespace MonsterLove.StateMachine
             return transition;
         }
 
-
-        private void EnforceNotIdentityTransition(TState toState)
-        {
-            if(state.Equals(toState))
-            {
-                throw new ArgumentException("Cannot transit to self state: " + toState.ToString());
-            }
-        }
-
         
-
         public ITransition[] Transitions {
             get {
                 return transitions.ToArray();
@@ -181,13 +301,6 @@ namespace MonsterLove.StateMachine
         }
     }
 
-
-    public interface ITransition {
-        string FromStateName { get; }
-        string ToStateName { get; }
-        string TriggerName { get; }
-        bool HasGuard { get; }
-    }
 
     /// <summary>
     /// stores a single transition, from stateA to stateB, with guard if necessary
@@ -201,25 +314,27 @@ namespace MonsterLove.StateMachine
         public TTrigger trigger;
         public Func<bool> guard;
 
-        public Transition(TTrigger trigger, TState fromState, TState toState) {
+        public Transition(TTrigger trigger, TState fromState, TState toState, StateTransition overrideSetting) {
             this.fromState = fromState;
             this.toState = toState;
             this.trigger = trigger;
             this.guard = AlwaysTrueFunc;
+            this.overrideSetting = overrideSetting;
         }
 
-        public Transition(TTrigger trigger, TState fromState, TState toState, Func<bool> guard) {
+        public Transition(TTrigger trigger, TState fromState, TState toState, Func<bool> guard, StateTransition overrideSetting) {
             this.fromState = fromState;
             this.toState = toState;
             this.trigger = trigger;
             this.guard = guard;
+            this.overrideSetting = overrideSetting;
         }
 
         public string FromStateName { get { return fromState.ToString(); } }
         public string ToStateName { get { return toState.ToString(); } }
         public string TriggerName { get { return trigger.ToString(); } }
         public bool HasGuard { get { return guard != AlwaysTrueFunc; } }
-
+        public StateTransition overrideSetting { get; set; }
 
         private static bool AlwaysTrueFunc() {
             return true;

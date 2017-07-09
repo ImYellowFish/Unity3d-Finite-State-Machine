@@ -1,7 +1,7 @@
 ﻿using UnityEngine;
 using System;
 using System.Reflection;
-using System.Collections;
+using System.Collections.Generic;
 
 namespace MonsterLove.StateMachine {
     public class StateMachineDebugger : MonoBehaviour {
@@ -11,11 +11,36 @@ namespace MonsterLove.StateMachine {
         public Array states { get; private set; }
         public Array triggers { get; private set;}
 
-        public bool stateValid { get { return stateMachine != null && states != null; } }
+        public bool stateValid { get { return stateMachine != null && states != null && stateMachine.CurrentStateMap.state != null; } }
         public bool transitionValid { get { return transitionManager != null && triggers != null; } }
 
-        public string currentStateName { get; private set; }
+        public string currentStateName;
+
+        [HideInInspector]
+        public bool timeAscending = false;
+
         public ITransition previousActiveTransition { get; private set; }
+
+        [System.Serializable]
+        public struct TransitionRecord
+        {
+            public int index;
+            public float time;
+            public GameObject gameObject;
+            public System.Diagnostics.StackTrace stackTrace;
+            public ITransition transition;
+        }
+
+        [HideInInspector]
+        public int transitionHistorySize = 30;
+        
+        [HideInInspector]
+        public List<TransitionRecord> transitionHistory = new List<TransitionRecord>();
+        public static int g_nextTransitionIndex = 0;
+
+        public static int g_transitionHistorySize = 200;
+        public static List<TransitionRecord> g_transitionHistory = new List<TransitionRecord>();
+
 
         public void InvokeChangeState(object state)
         {
@@ -29,6 +54,28 @@ namespace MonsterLove.StateMachine {
                 invokeTriggerAction(trigger);
         }
 
+        public static StateMachineDebugger Create<TState>(GameObject gameObject, 
+            StateMachine<TState> stateMachine)
+            where TState : struct, IConvertible, IComparable
+        {
+            var debugger = gameObject.AddComponent<StateMachineDebugger>();
+            debugger.Register(stateMachine);
+            return debugger;
+        }
+
+        public static StateMachineDebugger Create<TTrigger, TState>(GameObject gameObject,
+            StateMachine<TState> stateMachine,
+            TransitionManager<TTrigger, TState> transitionManager)
+            where TState : struct, IConvertible, IComparable
+            where TTrigger : struct, IConvertible, IComparable
+        {
+            var debugger = gameObject.AddComponent<StateMachineDebugger>();
+            debugger.Register(stateMachine, transitionManager);
+            return debugger;
+        }
+
+
+
         public void Register<TState>(StateMachine<TState> stateMachine)
             where TState : struct, IConvertible, IComparable
         {
@@ -41,7 +88,7 @@ namespace MonsterLove.StateMachine {
         {
             this.stateMachine = stateMachine;
             this.transitionManager = transitionManager;
-            states = Enum.GetValues(typeof(TState));
+            states = transitionManager.states;
             changeToStateAction = s => stateMachine.ChangeState((TState)s);
 
             if (transitionManager != null)
@@ -50,6 +97,7 @@ namespace MonsterLove.StateMachine {
                 invokeTriggerAction = t => transitionManager.Fire((TTrigger)t);
 
                 transitionManager.Triggered += (t => previousActiveTransition = t);
+                transitionManager.Triggered += AddTransitionRecord;
             }
         }
 
@@ -65,10 +113,36 @@ namespace MonsterLove.StateMachine {
             }
         }
 
+        private void AddTransitionRecord(ITransition transitionRecord)
+        {
+            TransitionRecord record = new TransitionRecord();
+            record.transition = transitionRecord;
+            record.time = Time.time;
+            record.gameObject = stateMachine.Component.gameObject;
+            record.stackTrace = new System.Diagnostics.StackTrace(true);
+            record.index = g_nextTransitionIndex;
+            g_nextTransitionIndex++;
+
+            
+            transitionHistory.Add(record);
+            if (transitionHistory.Count > transitionHistorySize)
+            {
+                transitionHistory.RemoveAt(0);
+
+            }
+
+            // add to global history
+            g_transitionHistory.Add(record);
+            if (g_transitionHistory.Count > g_transitionHistorySize)
+            {
+                g_transitionHistory.RemoveAt(0);
+            }
+        }
+
         #region Test
         public enum States { idle, walk, run, fight, dead }
         public enum Triggers { startWalk, stop, startRun }
-        public bool testVal;
+
         [ContextMenu("Test Get String")]
         public void TestGetString() {
             var fsm = StateMachine<States>.Initialize(this);
@@ -79,7 +153,7 @@ namespace MonsterLove.StateMachine {
                 Permit(Triggers.startRun, States.run);
             tm.Configure(States.walk).Permit(Triggers.stop, States.idle);
             tm.Configure(States.run).Permit(Triggers.stop, States.idle);
-            tm.Configure(States.fight).PermitIf(Triggers.stop, States.idle, () => testVal);
+            tm.Configure(States.fight).PermitIf(Triggers.stop, States.idle, () => true);
 
             Register(fsm, tm);
             
