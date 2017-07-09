@@ -5,7 +5,7 @@ using MonsterLove.StateMachine;
 public class TestFSMDebugger : MonoBehaviour {
     public enum State { A = 0, B = 1, NotAffectedByGlobal = 2}
     private StateMachine<State> fsm;
-    public enum Trigger { AtoB = 0, BtoA, AlltoA = 1, AlltoB = 2, NotUsed = 3}
+    public enum Trigger { AtoB = 0, BtoA = 1, AlltoA = 4, AlltoB = 2, NotUsed = 3}
     TransitionManager<Trigger, State> trm;
 
     public bool enableTransitionToSelfState = true;

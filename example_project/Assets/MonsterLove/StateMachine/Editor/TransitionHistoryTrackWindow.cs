@@ -6,6 +6,7 @@ namespace MonsterLove.StateMachine
 {
     public class TransitionHistoryTrackWindow : EditorWindow
     {
+        private const int START_FRAME_INDEX = 2;
         StateMachineDebugger.TransitionRecord record = new StateMachineDebugger.TransitionRecord { index = -1 };
 
         public void SetRecord(StateMachineDebugger.TransitionRecord record)
@@ -41,10 +42,12 @@ namespace MonsterLove.StateMachine
                 StateMachineDebuggerEditorUtil.DrawSplitLine();
                 GUILayout.BeginVertical();
                 scrollPos = GUILayout.BeginScrollView(scrollPos);
-                foreach (var frame in frames)
+
+                for(int i = START_FRAME_INDEX; i < frames.Length; i++)
                 {
-                    DrawStackFrame(frame);
+                    DrawStackFrame(frames[i]);
                 }
+                
                 GUILayout.EndScrollView();
                 GUILayout.EndVertical();
 
