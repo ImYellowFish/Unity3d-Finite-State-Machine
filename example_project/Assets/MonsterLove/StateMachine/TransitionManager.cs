@@ -34,6 +34,15 @@ namespace MonsterLove.StateMachine
         where TState: struct, IConvertible, IComparable 
         where TTrigger : struct, IConvertible, IComparable
     {
+        /// <summary>
+        /// the event is fired when a transition is about to happen
+        /// </summary>
+        public event Action<Transition<TTrigger, TState>> BeforeTriggered;
+
+
+        /// <summary>
+        /// the event is fired when a transition has been called
+        /// </summary>
         public event Action<Transition<TTrigger, TState>> Triggered;
         public Array states;
 
@@ -74,6 +83,9 @@ namespace MonsterLove.StateMachine
             {
                 object fromState = fsm.CurrentStateMap.state;
                 Transition<TTrigger, TState> transition = dict[fromState].ProcessTrigger(trigger);
+
+                if (transition != null && BeforeTriggered != null)
+                    BeforeTriggered.Invoke(transition);
 
                 fsm.ChangeState(transition.toState, transition.overrideSetting);
 

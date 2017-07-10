@@ -96,8 +96,8 @@ namespace MonsterLove.StateMachine {
                 triggers = Enum.GetValues(typeof(TTrigger));
                 invokeTriggerAction = t => transitionManager.Fire((TTrigger)t);
 
-                transitionManager.Triggered += (t => previousActiveTransition = t);
-                transitionManager.Triggered += AddTransitionRecord;
+                transitionManager.BeforeTriggered += (t => previousActiveTransition = t);
+                transitionManager.BeforeTriggered += AddTransitionRecord;
             }
         }
 
